@@ -1,0 +1,32 @@
+SEED: 10                      # random seed
+GPU: [2]                      # list of gpu ids
+DEBUG: 0                      # turns on debugging mode
+VERBOSE: 0                    # turns on verbose mode in the output console
+
+ROOT_DIR: ./data/birds
+N_SAMPLE: 11788
+
+LR: 0.0001                    # learning rate    
+BETA1: 0.5                    # adam optimizer beta1
+BETA2: 0.999                  # adam optimizer beta2
+BATCH_SIZE: 48                # input batch size for training
+IM_SIZE: 128                  # input image size for training 0 for original size    
+N_PTS: 32                     # number of points on the contour
+MAX_ITERS: 2e6                # maximum number of iterations to train the model
+
+SIGMA: 0.25                   # sigma used in log-likelihood
+DELTA_0: 0.4                  # step size of Langevin prior inference
+DELTA_1: 0.1                  # step size of Langevin posterior inference
+INFER_STEP_K0: 60             # maximum inference for running Langevin prior inference
+INFER_STEP_K1: 40             # maximum inference for running Langevin posterior inference
+ACM_STEP: 3                   # maximum step for running ACM
+ZF_DIM: 512                   # dimension of foreground latent vector
+ZB_DIM: 512                   # dimension of background latent vector
+ZS_DIM: 512                   # dimension of objectness latent vector
+NEF: 200                      # dimension of ebm feature
+
+SAVE_INTERVAL: 300            # how many iterations to wait before saving model (0: never)
+SAMPLE_INTERVAL: 30           # how many iterations to wait before sampling (0: never)
+SAMPLE_SIZE: 12               # number of images to sample
+EVAL_INTERVAL: 0              # how many iterations to wait before model evaluation (0: never)
+LOG_INTERVAL: 1               # how many iterations to wait before logging training status (0: never)
