@@ -1,11 +1,11 @@
 SEED: 10                      # random seed
-GPU: [2]                      # list of gpu ids
+GPU: [1]                      # list of gpu ids
 
-DATA: CUB
-ROOT_DIR: /home/peiyu/workspace/datasets/drc/birds/birds
-N_SAMPLE: 20000
-N_OBJ: 4
-TRAIN_SPLIT: -1
+DATA: CUB                     # alias of dataset
+ROOT_DIR: /mnt/disks/ssd_dataset/birds
+N_SAMPLE: 20000               # number of training samples  
+N_OBJ: 4                      # only used for CLEVR dataset
+TRAIN_SPLIT: -1               # which data-split to use (-1: all, 0: training, 2: testing)
 VAL_SPLIT: -1
 TEST_SPLIT: -1
 

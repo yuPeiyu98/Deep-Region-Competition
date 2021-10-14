@@ -1,5 +1,4 @@
 import cv2
-import glob
 import numpy as np
 import os
 import os.path as osp
@@ -10,9 +9,7 @@ import torch
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 
-from matplotlib.pyplot import imread
 from PIL import Image
-from skimage.color import rgb2gray, gray2rgb
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
@@ -373,7 +370,7 @@ class ClevrDataset(Dataset):
         self.file_meta = self.collect_meta()
 
     def __len__(self):
-        return len(self.file_meta) if (self.data_split == 0) else 1000
+        return len(self.file_meta) if (self.data_split == -1) else 1000
 
     def __getitem__(self, index):
         try:
@@ -466,7 +463,7 @@ class TexturedDataset(Dataset):
         ### parse data URL
         self.ROOT_DIR = config.ROOT_DIR
         self.IM_SIZE = config.IM_SIZE        
-        self.N = 20000 if (self.data_split == 0) else 1000
+        self.N = 20000 if (self.data_split == -1) else 1000
 
         self.file_meta = self.collect_meta()
 
