@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import neural_renderer as nr        
+import numpy as np
 
 ###################################################################
 ####################### BASIC ARCH COMPONENTS #####################
@@ -19,13 +19,19 @@ class GLU(nn.Module):
         nc = int(nc/2)
         return x[:, :nc] * torch.sigmoid(x[:, nc:])
 
+def spectral_norm(module, mode=True):
+    if mode:
+        return nn.utils.spectral_norm(module)
+
+    return module
+
 class UpBlock(nn.Module):
     """ upsample the feature map by a factor of 2x """
     def __init__(self, in_channels, out_channels):
         super(UpBlock, self).__init__()
         
         self.block = nn.Sequential(
-              nn.Upsample(scale_factor=2, mode='nearest'),
+              nn.Upsample(scale_factor=2, mode='bilinear'),
               nn.Conv2d(in_channels, 
                         out_channels, 
                         kernel_size=3, 
@@ -64,16 +70,18 @@ class SameBlock(nn.Module):
 
 class DownBlock(nn.Module):
     """ down-sample the feature map by a factor of 2x """
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, use_spc_norm=False):
         super(DownBlock, self).__init__()
         
         self.block = nn.Sequential(
-              nn.Conv2d(in_channels, 
+              spectral_norm(
+                nn.Conv2d(in_channels, 
                         out_channels, 
                         kernel_size=4, 
                         stride=2,
                         padding=1, 
-                        bias=False),
+                        bias=False), 
+                mode=use_spc_norm),
               nn.InstanceNorm2d(out_channels,
                                 affine=True, 
                                 track_running_stats=False),
@@ -155,21 +163,27 @@ class BaseDecoder(nn.Module):
 class BaseEncoder(nn.Module):
     def __init__(self, in_channels, 
                        out_channels, 
-                       block_chns=[64, 128, 256, 512, 1024]):
+                       block_chns=[64, 128, 256, 512, 1024],
+                       use_spc_norm=False):
         super(BaseEncoder, self).__init__()
         blocks = [] 
         blocks.append(DownBlock(in_channels=in_channels,
-                                out_channels=block_chns[0]))
+                                out_channels=block_chns[0],
+                                use_spc_norm=use_spc_norm))
         for i in range(0, len(block_chns)-1):
             block = DownBlock(in_channels=block_chns[i], 
-                            out_channels=block_chns[i+1])
+                              out_channels=block_chns[i+1],
+                              use_spc_norm=use_spc_norm)
             blocks.append(block)        
-        blocks.append(nn.Conv2d(in_channels=block_chns[-1],
-                                out_channels=out_channels,
-                                kernel_size=6,
-                                stride=4,
-                                padding=1,
-                                bias=True))
+        blocks.append(spectral_norm(
+                          nn.Conv2d(in_channels=block_chns[-1],
+                                    out_channels=out_channels,
+                                    kernel_size=6,
+                                    stride=4,
+                                    padding=1,
+                                    bias=True),
+                          mode=use_spc_norm
+                          ))
         self.blocks = nn.Sequential(*blocks)
 
     def forward(self, x):
@@ -221,7 +235,6 @@ class FgNet(BaseNetwork):
                                    128, 
                                    64],
                        kf=200,
-                       im_size=128,
                        init_weights=True):
         super(FgNet, self).__init__(name=name)
 
@@ -236,32 +249,39 @@ class FgNet(BaseNetwork):
         self.decode_base = BaseDecoder(block_chns=block_chns)
 
         self.im_head = ImageHead(in_channels=64, out_channels=3)
-        self.ma_head = MaskHead(in_channels=64, out_channels=1)
+        self.ma_head = nn.Sequential(
+            nn.Conv2d(in_channels=64, 
+                      out_channels=1, 
+                      kernel_size=3, 
+                      stride=1,
+                      padding=1, 
+                      bias=True))
 
         ############### encoder arch ##############
         self.encode_base = BaseEncoder(in_channels=3, 
-                                       out_channels=kf)
+                                       out_channels=kf,
+                                       use_spc_norm=False)
         if init_weights:
             self.init_weights()        
 
     def forward(self, z):
         bs = z.size(0)
 
-        z_f = self.fc(z).view(bs, -1, 4, 4)
-        obj_latent = self.decode_base(z_f)
+        f_lat = self.fc(z).view(bs, -1, 4, 4)
+        obj_feat = self.decode_base(f_lat)
 
         ### image 
-        app = self.im_head(obj_latent)
+        app = self.im_head(obj_feat)
 
         ### mask
-        ma = self.ma_head(obj_latent)        
+        ma = self.ma_head(obj_feat)
 
         ### logits for MI
-        app_and_ma = app * ma
+        app_and_ma = app * ma.sigmoid()
         f_logits = self.encode_base(app_and_ma)
         f_logits = f_logits.view(bs, -1)
         
-        return app, ma, f_logits, z_f
+        return app, ma, f_logits, f_lat
 
 class BgNet(BaseNetwork):
     def __init__(self, name='bg_net',
@@ -288,32 +308,42 @@ class BgNet(BaseNetwork):
 
         # final decoding layers
         self.im_head = ImageHead(in_channels=64, out_channels=3)
+        self.ma_head = nn.Sequential(
+            nn.Conv2d(in_channels=64, 
+                      out_channels=1, 
+                      kernel_size=3, 
+                      stride=1,
+                      padding=1, 
+                      bias=True))
 
         ############### encoder arch ##############
         self.encode_base = BaseEncoder(in_channels=3, 
-                                       out_channels=kb)
+                                       out_channels=kb,
+                                       use_spc_norm=False)
         if init_weights:
             self.init_weights()
 
     def forward(self, z):
         bs = z.size(0)
 
-        z_b = self.fc(z).view(bs, -1, 4, 4)            
-        bg_latent = self.decode_base(z_b)
+        b_lat = self.fc(z).view(bs, -1, 4, 4)            
+        bg_feat = self.decode_base(b_lat)
 
         ### image         
-        bg = self.im_head(bg_latent)
+        bg = self.im_head(bg_feat)
+        ### mask 
+        ma = self.ma_head(bg_feat)
 
         ### logits for MI        
-        b_logits = self.encode_base(bg)
+        b_logits = self.encode_base(bg * ma.sigmoid())
         b_logits = b_logits.view(bs, -1)
-        return bg, b_logits
+        return bg, ma, b_logits, b_lat
 
 class SpNet(BaseNetwork):
     def __init__(self, name='sp_net',
                        z_dim=128, 
-                       zobj_dim=128,
-                       im_size=128,     
+                       zf_dim=128,
+                       zb_dim=128,
                        block_chns=[128, 
                                    1024, 
                                    512, 
@@ -322,7 +352,6 @@ class SpNet(BaseNetwork):
                                    64],
                        init_weights=True):
         super(SpNet, self).__init__(name=name)
-        self.im_size = im_size
 
         ############### generator arch ##############   
         self.fc = nn.Sequential(
@@ -332,20 +361,10 @@ class SpNet(BaseNetwork):
 
         # feature base
         # z -> (B, 64, 128, 128)
-        block_chns[0] += zobj_dim
+        block_chns[0] += zf_dim
         self.decode_base_deform = BaseDecoder(block_chns=block_chns)
-
-        # deform grid est.
-        self.decode_deform = ImageHead(64, 2)
-
-        # affine grid est.
-        self.decode_aff = nn.Sequential(
-            nn.Conv2d(in_channels=64,
-                      out_channels=5,
-                      kernel_size=6,
-                      stride=4,
-                      padding=1)
-        )
+        # deform grid
+        self.decode_deform = ImageHead(64, 2)        
 
         ############### encoder arch ##############
         self.encode_base = BaseEncoder(in_channels=4, 
@@ -354,46 +373,23 @@ class SpNet(BaseNetwork):
         if init_weights:
             self.init_weights()
 
-    def forward(self, z, obj_latent):
+    def forward(self, z, b_lat):
         bs = z.size(0)
 
-        z_sp = self.fc(z)
+        sp_lat = self.fc(z)
  
-        ############### deform estimation ##############
-        deform_latent = z_sp.view(bs, -1, 4, 4)
-        deform_latent = torch.cat([
-            obj_latent, deform_latent], dim=1)
-        deform_latent = self.decode_base_deform(deform_latent)        
-        deform_grid = self.decode_deform(deform_latent)
+        ############### bg deform estimation ##############
+        deform_lat = sp_lat.view(bs, -1, 4, 4)
+        deform_lat = torch.cat([
+                        b_lat, 
+                        deform_lat
+                     ], dim=1)
+        deform_lat = self.decode_base_deform(deform_lat)
+        deform_grid = self.decode_deform(deform_lat)
         # (B, 2, H, W) -> (B, H, W, 2)
-        deform_grid = deform_grid.permute(0, 2, 3, 1)
+        deform_grid = deform_grid.permute(0, 2, 3, 1)        
 
-        ############### affine estimation ##############        
-        # # 1. estimate affine matrix
-        # affine_logits = self.decode_aff(deform_latent).view(bs, 5, -1)
-        # aff_conf = affine_logits[:, -1:, :].softmax(dim=-1)
-        # aff_s = affine_logits[:, 0:2, :].sigmoid() * .5 + .5
-        # aff_t = affine_logits[:, 2:-1, :].tanh()
-
-        # aff_s_v = (aff_s * aff_conf).sum(dim=-1)
-        # aff_t_v = (aff_t * aff_conf).sum(dim=-1, keepdim=True)
-
-        # theta = torch.eye(2, 2).view(1, 2, 2).repeat(bs, 1, 1).to(z.device)
-        # theta[:, 0, 0] = aff_s_v[:, 0]
-        # theta[:, 1, 1] = aff_s_v[:, 1]
-        # theta = torch.cat([theta, aff_t_v], dim=-1)
-        # # 2. construct sampling grid
-        # out_shape = (bs, 3, self.im_size, self.im_size)
-        # aff_grid = F.affine_grid(theta, torch.Size(out_shape))
-        
-        ### logits for MI
-        # cat_grid = torch.cat([deform_grid, aff_grid], dim=-1)
-        # # (B, H, W, 4) -> (B, 4, H, W)
-        # s_logits = self.encode_base(cat_grid.permute(0, 3, 1, 2))
-        # s_logits = s_logits.view(bs, -1)
-
-        aff_grid = deform_grid
-        return deform_grid, aff_grid, None # s_logits
+        return deform_grid
 
 ###################################################################
 ########################## LATENT EBMS ############################
@@ -407,6 +403,7 @@ class CEBMNet(BaseNetwork):
                        nef=200,
                        Kf=200,
                        Kb=200,
+                       use_spc_norm=False,
                        init_weights=True):
         super(CEBMNet, self).__init__(name=name)
         self.zf_dim = zf_dim
@@ -414,18 +411,36 @@ class CEBMNet(BaseNetwork):
         self.zsp_dim = zsp_dim
 
         self.fg_model = nn.Sequential(
-              nn.Linear(zf_dim, nef),
+              spectral_norm(
+                nn.Linear(zf_dim, nef),
+                mode=use_spc_norm
+              ),
               nn.LeakyReLU(0.2, inplace=True),
-              nn.Linear(nef, nef), 
+              spectral_norm(
+                nn.Linear(nef, nef),
+                mode=use_spc_norm
+              ),
               nn.LeakyReLU(0.2, inplace=True),
-              nn.Linear(nef, Kf)
+              spectral_norm(
+                nn.Linear(nef, Kf),
+                mode=use_spc_norm
+              )
             )
         self.bg_model = nn.Sequential(
-              nn.Linear(zb_dim, nef),
+              spectral_norm(
+                nn.Linear(zb_dim, nef),
+                mode=use_spc_norm
+              ),
               nn.LeakyReLU(0.2, inplace=True),
-              nn.Linear(nef, nef), 
+              spectral_norm(
+                nn.Linear(nef, nef),
+                mode=use_spc_norm
+              ),
               nn.LeakyReLU(0.2, inplace=True),
-              nn.Linear(nef, Kb)
+              spectral_norm(
+                nn.Linear(nef, Kb),
+                mode=use_spc_norm
+              )
             )
 
         nef *= 2
@@ -447,87 +462,11 @@ class CEBMNet(BaseNetwork):
         zf, zb, zs = z[:,:self.zf_dim], \
                      z[:,self.zf_dim:self.zf_dim + self.zb_dim], \
                      z[:,-self.zsp_dim:]
-        zs_logits = self.sp_model(zs)
+        s_score = self.sp_model(zs)
         zf_logits = self.fg_model(zf)
         zb_logits = self.bg_model(zb)
 
         score = torch.logsumexp(zf_logits, dim=1, keepdim=True) + \
                 torch.logsumexp(zb_logits, dim=1, keepdim=True) + \
-                zs_logits
-        return score, zf_logits, zb_logits, zs_logits
-
-###################################################################
-######################### DISCRIMINATOR ###########################
-###################################################################
-
-class DNet_bg(BaseNetwork):
-    def __init__(self, 
-                 in_channels=3, 
-                 name='dnet_bg',
-                 init_weights=True):
-        super(DNet_bg, self).__init__(name=name)
-
-        self.encode_base = nn.Sequential(
-            # 128x128 -> 32x32
-            DownBlock(in_channels, 64),
-            DownBlock(64, 128),
-            # shape-preserving
-            SameBlock(128, 256, 0.2),
-            SameBlock(256, 512, 0.2),            
-        ) 
-
-        self.real_fake_logits = nn.Sequential(            
-            nn.Conv2d(
-                    in_channels=512, 
-                    out_channels=1, 
-                    kernel_size=3, 
-                    stride=1, 
-                    padding=1, 
-                    bias=False)
-        )
-
-        self.fg_bg_logits = nn.Sequential(            
-            nn.Conv2d(
-                    in_channels=512, 
-                    out_channels=1, 
-                    kernel_size=3, 
-                    stride=1, 
-                    padding=1, 
-                    bias=False)
-        )
-
-        if init_weights:
-            self.init_weights()
-
-    def forward(self, x):
-        enc_latent = self.encode_base(x)        
-        return self.real_fake_logits(enc_latent), \
-               self.fg_bg_logits(enc_latent)
-
-class DNet_all(BaseNetwork):
-    def __init__(self, 
-                 in_channels=3, 
-                 name='dnet_all',
-                 init_weights=True):
-        super(DNet_all, self).__init__(name=name)
-
-        self.model = nn.Sequential(
-            # 128x128 -> 8x8
-            DownBlock(in_channels, 64),
-            DownBlock(64, 128),
-            DownBlock(128, 256),
-            DownBlock(256, 512),
-            nn.Conv2d(
-                    in_channels=512, 
-                    out_channels=1, 
-                    kernel_size=3, 
-                    stride=1, 
-                    padding=1, 
-                    bias=False)            
-        ) 
-        
-        if init_weights:
-            self.init_weights()
-
-    def forward(self, x):
-        return self.model(x)                
+                s_score
+        return score, zf_logits, zb_logits

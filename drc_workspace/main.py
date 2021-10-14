@@ -7,37 +7,82 @@ import random
 import torch
 import torch.nn as nn
 
-from data.dataset import Dataset
+from data.dataset import *
+
 from shutil import copyfile
 from src.utils import Config, Progbar, create_dir
 from src.utils import stitch_images, imsave
-# from src.models_gmm import EABPModel
-# from src.models_gmm_cl import EABPModel
-# from src.models_gmm_h import EABPModel
-# from src.models_cl import EABPModel
 
 from src.models import EABPModel
 from torch.utils.data import DataLoader
 
 def run(model, config):
-    # training configuration
-    train_dataset = Dataset(
-        config,    
-        training=True)
-    val_dataset = Dataset(
-        config, 
-        training=False)
+    # dataset configuration
+    def get_dataset(config):
+        if config.DATA.lower() == "cub":
+            train_dataset = CubDataset(
+                                config, 
+                                data_split=config.TRAIN_SPLIT,
+                                use_flip=True
+                            )
+            val_dataset = CubDataset(
+                                config, 
+                                data_split=config.VAL_SPLIT,
+                                use_flip=False
+                            )            
+        elif config.DATA.lower() == "dog":
+            train_dataset = DogDataset(
+                                config, 
+                                data_split=config.TRAIN_SPLIT, 
+                                use_flip=True
+                            )
+            val_dataset = DogDataset(
+                                config, 
+                                data_split=config.VAL_SPLIT,
+                                use_flip=False
+                            )            
+        elif config.DATA.lower() == "car":
+            train_dataset = CarDataset(
+                                config, 
+                                data_split=config.TRAIN_SPLIT, 
+                                use_flip=True
+                            )
+            val_dataset = CarDataset(
+                                config, 
+                                data_split=config.VAL_SPLIT,
+                                use_flip=False
+                            )            
+        elif config.DATA.lower() == "clevr":
+            train_dataset = ClevrDataset(
+                                config, 
+                                data_split=config.TRAIN_SPLIT, 
+                                use_flip=True
+                            )
+            val_dataset = ClevrDataset(
+                                config, 
+                                data_split=config.VAL_SPLIT,
+                                use_flip=False
+                            )            
+        elif config.DATA.lower() == "textured":
+            train_dataset = TexturedDataset(
+                                config, 
+                                data_split=config.TRAIN_SPLIT,
+                                use_flip=True
+                            )
+            val_dataset = TexturedDataset(
+                                config, 
+                                data_split=config.VAL_SPLIT,
+                                use_flip=False
+                            )
+        else:
+            raise ValueError("Unknown dataset.")
+        return train_dataset, val_dataset
+
+    train_dataset, val_dataset = get_dataset(config)
     sample_iterator = val_dataset.create_iterator(
         config.SAMPLE_SIZE)
 
-    samples_path = os.path.join(config.PATH, 'samples')
-    results_path = os.path.join(config.PATH, 'results')
-
-    if config.RESULTS is not None:
-        results_path = os.path.join(config.RESULTS)
-
-    if config.DEBUG is not None and config.DEBUG != 0:
-        debug = True
+    samples_path = os.path.join(config.PATH, 'samples')        
 
     log_file = osp.join(
         config.PATH, 'log_' + model.model_name + '.dat')
@@ -74,19 +119,14 @@ def run(model, config):
         model.eval()
         
         items = next(sample_iterator)
-        im_t, __ = cuda(*items)
+        im_t, seg_t, __ = cuda(*items)
 
-        # forward pass
         iteration = model.iteration
         # inference
         z = model.sample_langevin_posterior(im_t)
         with torch.no_grad():
-            im_p, fg, bg, ma, fg_app_cano, fg_mask_cano, fg_mask_cont, \
-            f_logits, b_logits, s_logits, d_grid, a_grid = model(z, im_t)            
-            # im_p, fg, bg, ma, fg_app_cano, fg_mask_cano, fg_mask_cont, \
-            # f_logits, b_logits, s_logits, d_grid, a_grid = model(z)            
-            # im_p, fg, bg, ma, fg_app_cano, fg_mask_cano, \
-            #    f_logits, b_logits, s_logits, d_grid, a_grid = model(z, im_t)            
+            # forward
+            im_p, fg, bg_wp, pi_f, pi_b, bg, __, __, __ = model(z, im_t)            
 
         image_per_row = 2
         if config.SAMPLE_SIZE <= 6:
@@ -96,10 +136,9 @@ def run(model, config):
             postprocess((im_t + 1) / 2.),
             postprocess((im_p + 1) / 2.),
             postprocess((fg + 1) / 2.),
+            postprocess((bg_wp + 1) / 2.),
+            postprocess(pi_f),
             postprocess((bg + 1) / 2.),
-            postprocess(ma),
-            postprocess((fg_app_cano + 1) / 2.),
-            postprocess((fg_mask_cano + 1) / 2.),
             img_per_row = image_per_row
         )
 
@@ -138,14 +177,12 @@ def run(model, config):
             for items in train_loader:
                 model.train()
 
-                im_t, index = cuda(*items)                
-                # inference
-                zn = model.sample_langevin_prior(im_t, index)
-                zp = model.sample_langevin_posterior(im_t, index)
-                # learn
-                logs = model.learn(zp, zn, im_t)                
+                im_t, __, index = cuda(*items)
+
+                # learn                
+                logs = model.learn(im_t, index)
                 
-                iteration = model.iteration                
+                iteration = model.iteration
 
                 if iteration >= max_iteration:
                     keep_training = False
@@ -156,10 +193,7 @@ def run(model, config):
                     ("iter", iteration),
                 ] + logs
 
-                progbar.add(len(im_t), values=logs \
-                    if config.VERBOSE else \
-                    [x for x in logs if not \
-                     x[0].startswith('l_')])
+                progbar.add(len(im_t), values=logs)
 
                 # log model at checkpoints
                 if config.LOG_INTERVAL and \
@@ -197,13 +231,13 @@ def main(mode=None):
     if torch.cuda.is_available():
         config.DEVICE = torch.device("cuda")
         # cudnn auto-tuner
-        torch.backends.cudnn.benchmark = True   
+        # torch.backends.cudnn.benchmark = True   
     else:
         config.DEVICE = torch.device("cpu")
 
     # set cv2 running threads to 1 
     # (prevents deadlocks with pytorch dataloader)
-    cv2.setNumThreads(0)
+    # cv2.setNumThreads(0)
 
     # initialize random seed
     torch.manual_seed(config.SEED)

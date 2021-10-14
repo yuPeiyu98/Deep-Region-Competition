@@ -56,11 +56,6 @@ def tv_loss(x):
     dy = torch.abs(x[:, :, :-1, :] - x[:, :, 1:, :])
     return dx + dy.permute(0, 1, 3, 2)
 
-def bias_loss(input_grid, base_grid):
-    bs, h, w, __ = input_grid.size()
-    base_grid = base_grid.view(1, h, w, 2).repeat(bs, 1, 1, 1).to(input_grid.device)
-    return F.mse_loss(input_grid, base_grid, reduction='none')
-
 class GradLoss(nn.Module):
     def __init__(self):
         super(GradLoss, self).__init__()

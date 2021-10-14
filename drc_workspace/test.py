@@ -7,37 +7,62 @@ import random
 import torch
 import torch.nn as nn
 
-from data.dataset_test import Dataset
+from data.dataset import *
+
 from PIL import Image
 from shutil import copyfile
 from src.utils import Config, Progbar, create_dir
 from src.utils import stitch_images, imsave
-# from src.models_gmm import EABPModel
-# from src.models_gmm_hie import EABPModel
-# from src.models_gmm_cl import EABPModel
-# from src.models_gmm_h import EABPModel
-# from src.models_cl import EABPModel
 
 from src.models import EABPModel
 from torch.utils.data import DataLoader
 
 def run(model, config):
-    # training configuration
-    val_dataset = Dataset(
-        config, 
-        training=False)
-    sample_iterator = val_dataset.create_iterator(
-        config.SAMPLE_SIZE)
+    # dataset configuration
+    def get_dataset(config):
+        if config.DATA.lower() == "cub":            
+            val_dataset = CubDataset(
+                                config, 
+                                data_split=config.TEST_SPLIT,
+                                use_flip=False
+                            )            
+        elif config.DATA.lower() == "dog":            
+            val_dataset = DogDataset(
+                                config, 
+                                data_split=config.TEST_SPLIT,
+                                use_flip=False
+                            )            
+        elif config.DATA.lower() == "car":            
+            val_dataset = CarDataset(
+                                config, 
+                                data_split=config.TEST_SPLIT, 
+                                use_flip=False
+                            )            
+        elif config.DATA.lower() == "clevr":            
+            val_dataset = ClevrDataset(
+                                config, 
+                                data_split=config.TEST_SPLIT, 
+                                use_flip=False
+                            )            
+        elif config.DATA.lower() == "textured":            
+            val_dataset = TexturedDataset(
+                                config, 
+                                data_split=config.TEST_SPLIT, 
+                                use_flip=False
+                            )            
+        else:
+            raise ValueError("Unknown dataset.")
+        return val_dataset
+    
+    val_dataset = get_dataset(config)
 
-    samples_path = os.path.join(config.PATH, 'samples_test')    
-    gen_path = os.path.join(config.PATH, 'generated_test')
-    z_path = os.path.join(config.PATH, 'z_infered.npy')    
+    token = '1000_iter300_viz'
 
-    if config.DEBUG is not None and config.DEBUG != 0:
-        debug = True
+    samples_path = os.path.join(config.PATH, 'samples_test_{}'.format(token))    
+    gen_path = os.path.join(config.PATH, 'generated_test_{}'.format(token))        
 
     log_file = osp.join(
-        config.PATH, 'log_' + model.model_name + '_test.dat')
+        config.PATH, 'log_' + model.model_name + '_test_{}.dat'.format(token))
 
     def log(logs):
         with open(log_file, 'a') as f:
@@ -85,10 +110,9 @@ def run(model, config):
             postprocess((im_p + 1) / 2.),
             postprocess((fg_wp + 1) / 2.),
             postprocess((bg_wp + 1) / 2.),
-            postprocess(pi_f),
-            postprocess(seg_t),
-            postprocess((fg + 1) / 2.),
             postprocess((bg + 1) / 2.),
+            postprocess(pi_f),
+            postprocess(seg_t),                    
             img_per_row = image_per_row
         )
 
@@ -102,7 +126,7 @@ def run(model, config):
         test_loader = DataLoader(
                 dataset=val_dataset,
                 batch_size=config.BATCH_SIZE,
-                num_workers=4,
+                num_workers=2,
                 drop_last=False,
                 shuffle=False
             )
@@ -121,19 +145,16 @@ def run(model, config):
         iou_s = 0
         dice_s = 0
         cnt = 0
-
-        z_list = []
-        for iteration, items in enumerate(test_loader):
+        
+        for iteration, items in enumerate(test_loader):            
             model.eval()
 
             im_t, seg_t, index = cuda(*items)                
             # inference                
-            zp = model.sample_langevin_posterior(im_t)
-            z_list.append(zp.detach().cpu().numpy())
+            zp = model.sample_langevin_posterior(im_t)            
             with torch.no_grad():
                 # learn                
-                im_p, fg_wp, bg_wp, pi_f, fg, bg, pi_b, \
-                f_logits, b_logits, s_logits, __, __ = model(zp, im_t)
+                im_p, fg, bg_wp, pi_f, pi_b, bg, __, __, __ = model(zp, im_t)
                 
                 bs = im_p.size(0)
 
@@ -144,7 +165,7 @@ def run(model, config):
                 iou = (pred * gt).view(bs, -1).sum(dim=-1) / \
                       ((pred + gt) > 0).view(bs, -1).sum(dim=-1)
                 dice = 2 * (pred * gt).view(bs, -1).sum(dim=-1) / \
-                       (pred.view(bs, -1).sum(dim=-1) + gt.view(bs, -1).sum(dim=-1))
+                       (pred.view(bs, -1).sum(dim=-1) + gt.view(bs, -1).sum(dim=-1))                
 
                 iou_s += iou.sum().item()
                 dice_s += dice.sum().item()
@@ -156,10 +177,7 @@ def run(model, config):
                 ("Dice", dice.mean().item())
             ]
 
-            progbar.add(len(im_t), values=logs \
-                if config.VERBOSE else \
-                [x for x in logs if not \
-                x[0].startswith('l_')])
+            progbar.add(len(im_t), values=logs)
 
             # save generated sample
             save_gen(im_p, cnt, 'gen')
@@ -169,18 +187,16 @@ def run(model, config):
             # log model at checkpoints
             if config.LOG_INTERVAL and \
                 iteration % config.LOG_INTERVAL == 0:
-                log(logs)
+                log(logs)                                
 
             # sample model at checkpoints
             if config.SAMPLE_INTERVAL and \
                 iteration % config.SAMPLE_INTERVAL == 0:
                 viz(iteration, im_t, seg_t, im_p, 
-                       fg_wp, bg_wp, pi_f, fg, bg)
-                np.save(z_path, np.vstack(z_list))
-
-        np.save(z_path, np.vstack(z_list))
+                       fg, bg_wp, pi_f, fg, bg)        
+        
         print('Avg Iou: {}, Dice: {}'.format(
-            iou_s / 11788, dice_s / 11788))
+            iou_s / cnt, dice_s / cnt))
         print('\nEnd testing....')
 
     test()
@@ -203,7 +219,7 @@ def main(mode=None):
     if torch.cuda.is_available():
         config.DEVICE = torch.device("cuda")
         # cudnn auto-tuner
-        torch.backends.cudnn.benchmark = True   
+        # torch.backends.cudnn.benchmark = True   
     else:
         config.DEVICE = torch.device("cpu")
 
