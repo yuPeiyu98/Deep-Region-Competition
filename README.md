@@ -1,9 +1,9 @@
-# Unsupervised ForegroundExtraction via Deep Region Competition
+# Unsupervised Foreground Extraction via Deep Region Competition
 <img src="teaser.png" alt="teaser" width="50%" />
 
 [[Paper](TBD)] [[Code](https://github.com/yuPeiyu98/DRC)]
 
-The official code repository for NeurIPS 2021 paper "Unsupervised ForegroundExtraction via Deep Region Competition".
+The official code repository for NeurIPS 2021 paper "Unsupervised Foreground Extraction via Deep Region Competition".
 
 ## Installation
 
