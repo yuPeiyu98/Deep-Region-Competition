@@ -1,5 +1,5 @@
 # Unsupervised Foreground Extraction via Deep Region Competition
-<img src="teaser.pdf" alt="teaser" width="100%" />
+<img src="teaser.png" alt="teaser" width="100%" />
 
 [[Paper](TBD)] [[Code](https://github.com/yuPeiyu98/DRC)]
 
