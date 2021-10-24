@@ -1,0 +1,34 @@
+SEED: 10                      # random seed
+GPU: [3]                      # list of gpu ids
+
+DATA: CUB
+ROOT_DIR: 
+N_SAMPLE: 20000
+N_OBJ: 4
+TRAIN_SPLIT: 0                # which data-split to use (-1: all, 0: training, 2: testing)
+VAL_SPLIT: 2
+TEST_SPLIT: 2
+
+LR: 0.0001                    # learning rate    
+BETA1: 0.5                    # adam optimizer beta1
+BETA2: 0.999                  # adam optimizer beta2
+BATCH_SIZE: 48                # input batch size for training
+IM_SIZE: 128                  # input image size for training 0 for original size    
+MAX_ITERS: 2e6                # maximum number of iterations to train the model
+
+SIGMA: 0.25                   # sigma used in log-likelihood
+DELTA_0: 0.4                  # step size of Langevin prior inference
+DELTA_1: 0.1                  # step size of Langevin posterior inference
+INFER_STEP_K0: 60             # maximum inference for running Langevin prior inference
+INFER_STEP_K1: 40             # maximum inference for running Langevin posterior inference
+INFER_TEST: 300
+ZF_DIM: 256                   # dimension of foreground latent vector
+ZB_DIM: 256                   # dimension of background latent vector
+ZS_DIM: 512                   # dimension of objectness latent vector
+NEF: 200                      # dimension of ebm feature
+
+SAVE_INTERVAL: 300            # how many iterations to wait before saving model (0: never)
+SAMPLE_INTERVAL: 30           # how many iterations to wait before sampling (0: never)
+SAMPLE_SIZE: 12               # number of images to sample
+EVAL_INTERVAL: 0              # how many iterations to wait before model evaluation (0: never)
+LOG_INTERVAL: 1               # how many iterations to wait before logging training status (0: never)

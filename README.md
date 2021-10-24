@@ -38,7 +38,7 @@ This will save the generated dataset in the `meta` folder.
 python main.py --checkpoints <TO_BE_SPECIFIED>
 ```
 
-You may specify the value of arguments. Please find the available arguments in the `config.yml.example` file in `drc_workspace` folder. 
+You may specify the value of arguments. Please find the available arguments in the `config.yml.example` file in `drc_workspace` folder. Note that `config.yml.example` file provides the training parameters on full `CUB` dataset. Parameters on other datasets and data splits can be found in the `drc_workspace/config_gallery` folder.
 
 Note that `DATA` indicates the dataset to use (`CUB`, `DOG`, `CAR`, `CLEVR` and `TEXTURED`). The path to your dataset folder, i.e., `ROOT_DIR`, needs to be specified before running the script.
 
