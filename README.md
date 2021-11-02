@@ -1,4 +1,4 @@
-Unsupervised Foreground Extraction via Deep Region Competition
+# Unsupervised Foreground Extraction via Deep Region Competition
 <img src="teaser.png" alt="teaser" width="100%" />
 
 [[Paper](https://arxiv.org/abs/2110.15497#)] [[Code](https://github.com/yuPeiyu98/DRC)]
