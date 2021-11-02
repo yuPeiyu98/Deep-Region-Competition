@@ -1,7 +1,7 @@
 Unsupervised Foreground Extraction via Deep Region Competition
 <img src="teaser.png" alt="teaser" width="100%" />
 
-[[Paper](TBD)] [[Code](https://github.com/yuPeiyu98/DRC)]
+[[Paper](https://arxiv.org/abs/2110.15497#)] [[Code](https://github.com/yuPeiyu98/DRC)]
 
 The official code repository for NeurIPS 2021 paper "Unsupervised Foreground Extraction via Deep Region Competition".
 
@@ -55,7 +55,7 @@ python test.py --checkpoints <TO_BE_SPECIFIED>
 @inproceedings{yu2021unsupervised,
   author = {Yu, Peiyu and Xie, Sirui and Ma, Xiaojian and Zhu, Yixin and Wu, Ying Nian and Zhu, Song-Chun},
   title = {Unsupervised Foreground Extraction via Deep Region Competition},
-  booktitle = {Proceedings of Advances in Neural Information Processing Systems (NeurIPS)},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
   month = {December},
   year = {2021}
 }
