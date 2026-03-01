@@ -19,7 +19,7 @@ The implementation depends on the following commonly used packages, all of which
 
 ## Datasets and Pretrained Models
 
-Datasets and pretrained models are available at: https://drive.google.com/drive/folders/1qItekRJcOYBIcVi4ChrcyzwFVl-lrw23?usp=sharing
+Datasets and pretrained models are available at: https://drive.google.com/drive/folders/1qItekRJcOYBIcVi4ChrcyzwFVl-lrw23?usp=sharing [No longer valid]. **Please note that the link is outdated due to limited google drive access. Please directly contact the first author for further experiment details.**
 
 Please follow the following commands to obtain the `CLEVR6` dataset:
 
